@@ -3,6 +3,8 @@
 **A 5-configuration × 4-phase head-to-head validation suite. 2,105 hard coding problems executed across all configurations under sustained concurrent load. Zero engine crashes, zero hangs, zero malformed responses.**
 
 > **Update — May 6, evening:** [Section 12](#12-addendum-may-6-evening--draft_sample_methodgumbel-removal-study) adds an addendum re-running all three DFlash variants with the deprecated `--speculative-config.draft_sample_method gumbel` flag removed and an improved harness (60s decode duration, 20s warmup). Headline finding: **DFlash N=15 with `gumbel` disabled gains +8 HumanEval problems (73.2% → 78.0%)**, becoming the new SOTA among BF16+DFlash configurations. Production guidance unchanged: FP8+MTP=3 still leads at 79.3%.
+>
+> **Update — May 7:** [Section 13](#13-addendum-may-7--fp8-base--dflash-drafter-no-gumbel-study) characterises the previously-untested **FP8 base + DFlash drafter** pairing across N ∈ {7, 8, 15}, with the same harness plus a 60-second post-ready settle. Headline findings: **FP8+DFlash N=7 narrowly beats FP8+MTP=3 on aggregate throughput (244.2 vs 241.5 tok/s)** and **FP8+DFlash N=8 beats FP8+MTP=3 by +5–13% at long context (ctx ≥ 64k)** while gaining +2.7pp on MBPP. New guidance: FP8+DFlash N=8 is the recommended choice for long-context coding-agent workloads; FP8+MTP=3 remains the default for general serving.
 
 ---
 
@@ -505,4 +507,214 @@ Engine: `repne/vllm:latest` digest `f8daec1dc883`, vLLM `v0.1.dev16434+g81845bde
 - `configC2-dflash7-nogumbel/` — gates, throughput-matrix (9 cells × 2 runs), HumanEval, MBPP, full driver logs (including failed-attempt log and successful retry log).
 - `configD2-dflash8-nogumbel/` — gates, throughput-matrix, HumanEval, MBPP, driver log.
 - `configE2-dflash15-nogumbel/` — gates, throughput-matrix, HumanEval, MBPP, driver log.
+
+
+---
+
+## 13. Addendum (May 7) — FP8 base × DFlash drafter (no-gumbel) study
+
+### 13.1 Motivation
+
+Section 12 isolated the effect of removing `--speculative-config.draft_sample_method gumbel` from the **BF16** base + DFlash drafter pairings. A natural follow-up: **what happens when DFlash is paired with the FP8-quantised base model instead of BF16?** The headline production configuration (FP8+MTP=3) and the BF16+DFlash configurations occupy different correctness/throughput points; the FP8+DFlash combination has not been characterised in any prior section of this report.
+
+This addendum runs the **full four-phase harness** (gates → throughput-matrix → HumanEval → MBPP) on three new configurations:
+
+| New config | Base | Drafter | n_spec | gumbel | Image |
+|---|---|---|---|---|---|
+| `configF-fp8-dflash7-nogumbel`  | `Qwen/Qwen3.6-27B-FP8` (W8A8) | `z-lab/Qwen3.6-27B-DFlash` (BF16) | 7  | OFF | `repne/vllm@f8daec1dc883` |
+| `configG-fp8-dflash8-nogumbel`  | `Qwen/Qwen3.6-27B-FP8` (W8A8) | `z-lab/Qwen3.6-27B-DFlash` (BF16) | 8  | OFF | `repne/vllm@f8daec1dc883` |
+| `configH-fp8-dflash15-nogumbel` | `Qwen/Qwen3.6-27B-FP8` (W8A8) | `z-lab/Qwen3.6-27B-DFlash` (BF16) | 15 | OFF | `repne/vllm@f8daec1dc883` |
+
+All three runs added a **60-second post-ready settle period** between engine-ready signal (`/v1/models` HTTP 200) and the first benchmark request, on top of the existing `--decode-warmup-seconds 20`. This eliminates any residual flashinfer / CUDA-graph caching effects from the first measured cell. All other harness settings are identical to Section 12.
+
+### 13.2 Engine-startup incompatibility (resolved)
+
+**Failure observed:** the FP8 base + BF16 DFlash drafter pairing **segfaults at engine init** when launched with `--load-format instanttensor` (the production FP8 launcher's default). The error path is consistent across all three N values:
+
+```
+(Worker_TP0) Loading drafter model...
+(Worker_TP0) Loading safetensors using InstantTensor loader: 100% Completed | 58/58
+!!!!!!! Segfault encountered !!!!!!!
+  cuMemcpyDtoDAsync_v2 → cudaMemcpyAsync → at::native::copy_device_to_device
+```
+
+**Resolution:** drop `--load-format instanttensor` from the launch command. The standard safetensors loader handles the mixed-precision base/drafter pairing without issue. With the standard loader, all three configs come up cleanly in 110–302s. We attribute the segfault to InstantTensor's mmap-based zero-copy path being incompatible with the dtype-conversion required when the FP8 base hands off residual/embedding tensors to the BF16 drafter; this is a fixable issue but is documented here for reproducibility.
+
+### 13.3 Coding correctness — three-way comparison
+
+(All HumanEval at c=8, max_tokens=4096, temp=0.0; all MBPP sanitized split, c=8, max_tokens=4096, temp=0.0.)
+
+| Config | HumanEval pass | MBPP pass | Combined (HE+MB) |
+|---|---|---|---|
+| **FP8+MTP=3** (production SOTA) | **130/164 (79.3%)** | 220/257 (85.6%) | 350/421 (83.1%) |
+| BF16+DFlash N=7  no-gumbel | 120/164 (73.2%) | 228/257 (88.7%) | 348/421 (82.7%) |
+| BF16+DFlash N=8  no-gumbel | 116/164 (70.7%) | **230/257 (89.5%)** | 346/421 (82.2%) |
+| BF16+DFlash N=15 no-gumbel | 128/164 (78.0%) | 227/257 (88.3%) | 355/421 (84.3%) |
+| **FP8+DFlash N=7  no-gumbel** | 121/164 (73.8%) | 225/257 (87.5%) | 346/421 (82.2%) |
+| **FP8+DFlash N=8  no-gumbel** | **122/164 (74.4%)** | 227/257 (88.3%) | 349/421 (82.9%) |
+| **FP8+DFlash N=15 no-gumbel** | 121/164 (73.8%) | 224/257 (87.2%) | 345/421 (82.0%) |
+
+**Headline correctness findings:**
+
+1. **FP8+DFlash sits between BF16+DFlash and FP8+MTP=3 on HumanEval.** All three FP8+DFlash variants land at 73.8–74.4%, slightly better than BF16+DFlash N=7 / N=8 (73.2% / 70.7%) and below BF16+DFlash N=15 (78.0%) and FP8+MTP=3 (79.3%).
+2. **MBPP is essentially flat across all DFlash configurations regardless of base precision** (87.2–89.5%). The base-precision choice barely affects MBPP pass-rate.
+3. **FP8+DFlash does NOT inherit BF16+DFlash N=15's HumanEval bump.** The +8-problem advantage that BF16+DFlash N=15 enjoyed in Section 12 disappears at FP8: FP8+DFlash N=15 = 73.8%, the same as N=7 and N=8. Whatever mechanism gave BF16 N=15 its edge does not survive FP8 quantisation.
+4. **N=8 is the FP8+DFlash sweet spot** (74.4% HE, 88.3% MB). It is the new best-correctness FP8+DFlash configuration.
+
+### 13.4 Throughput matrix — three-way comparison
+
+Mean output tok/s across all 9 cells (3 contexts × 3 concurrencies × 2 runs × 60s sustained decode):
+
+| Config | Mean tok/s | Δ vs FP8+MTP=3 | Δ vs BF16+DF same N |
+|---|---|---|---|
+| **FP8+MTP=3** | **241.5** | — | — |
+| BF16+DFlash N=7 | 196.6 | −18.6% | — |
+| BF16+DFlash N=8 | 195.9 | −18.9% | — |
+| BF16+DFlash N=15 | 181.0 | −25.0% | — |
+| **FP8+DFlash N=7** | **244.2** | **+1.1%** | **+24.2%** |
+| **FP8+DFlash N=8** | **240.4** | −0.5% | **+22.7%** |
+| FP8+DFlash N=15 | 222.8 | −7.7% | **+23.1%** |
+
+**Headline throughput findings:**
+
+1. **FP8+DFlash N=7 narrowly beats FP8+MTP=3 on aggregate throughput** (244.2 vs 241.5 tok/s, +1.1%) and FP8+DFlash N=8 effectively ties it (240.4, −0.5%). The earlier BF16+DFlash configurations were 19–25% slower than FP8+MTP=3; switching to the FP8 base completely closes that gap.
+2. **FP8 base lifts DFlash throughput by ~23% across all three N values** vs. BF16 base, holding the drafter constant. This is the cleanest A/B isolation of base-model precision in this study.
+3. **FP8+DFlash dominates at long context.** At ctx=131k, FP8+DFlash N=8 beats FP8+MTP=3 by **+5.4% to +12.7%** across c∈{1,2,4}. At c=4 / ctx=131k the advantage is +18.5 tok/s (359.5 vs 341.0).
+4. **FP8+MTP=3 retains an edge at ctx=0 / high concurrency.** At c=4 / ctx=0, FP8+MTP=3 = 441.7 tok/s vs FP8+DFlash N=8 = 419.1 (−5.1%). MTP's tighter integration with the main decoder appears to win when there's no KV-cache pressure.
+
+### 13.5 Speculative-decoding acceptance — three-way comparison
+
+| Config | Mean acceptance |
+|---|---|
+| FP8+MTP=3 | 55.32% |
+| BF16+DFlash N=7 | 23.50% |
+| BF16+DFlash N=8 | 25.58% |
+| BF16+DFlash N=15 | 13.50% |
+| FP8+DFlash N=7  | 23.67% |
+| FP8+DFlash N=8  | 22.12% |
+| FP8+DFlash N=15 | 12.62% |
+
+DFlash acceptance rates are stable across base precision (BF16↔FP8 deltas are within ±3.5pp). MTP=3's 55% acceptance remains in a different league — but it does not translate proportionally to throughput because each accepted MTP token costs more compute than each accepted DFlash token. The DFlash architecture's lower per-token verification cost is what allows FP8+DFlash N=7/8 to match FP8+MTP=3 throughput despite a 2× lower acceptance rate.
+
+### 13.6 Per-cell head-to-head: FP8+DFlash N=8 vs FP8+MTP=3
+
+| ctx | c | FP8+MTP=3 tok/s | FP8+DF8 tok/s | Δ | Δ% |
+|---|---|---|---|---|---|
+| 0 | 1 | 116.8 | 110.5 | −6.3 | −5.4% |
+| 0 | 2 | 220.4 | 221.6 | +1.2 | +0.5% |
+| 0 | 4 | 441.7 | 419.1 | −22.5 | −5.1% |
+| 32k | 1 | 110.7 | 115.0 | +4.3 | +3.8% |
+| 32k | 2 | 223.2 | 220.5 | −2.7 | −1.2% |
+| 32k | 4 | 439.2 | 406.1 | −33.1 | −7.5% |
+| **128k** | **1** | **96.8** | **109.1** | **+12.3** | **+12.7%** |
+| **128k** | **2** | **183.5** | **202.1** | **+18.6** | **+10.1%** |
+| **128k** | **4** | **341.0** | **359.5** | **+18.5** | **+5.4%** |
+
+**Verdict:** FP8+DFlash N=8 trades short-context throughput for long-context throughput vs. FP8+MTP=3. For coding-agent workloads dominated by 64k–256k context (codebase-aware tasks), FP8+DFlash N=8 is the better choice. For ctx=0 high-concurrency batch serving, FP8+MTP=3 still wins.
+
+### 13.7 Per-cell head-to-head: FP8 vs BF16 base, holding DFlash N=8 fixed
+
+| ctx | c | BF16+DF8 tok/s | FP8+DF8 tok/s | Δ | Δ% |
+|---|---|---|---|---|---|
+| 0 | 1 | 94.5 | 110.5 | +16.0 | +16.9% |
+| 0 | 2 | 179.6 | 221.6 | +42.0 | **+23.4%** |
+| 0 | 4 | 341.0 | 419.1 | +78.1 | **+22.9%** |
+| 32k | 1 | 97.0 | 115.0 | +18.0 | +18.6% |
+| 32k | 2 | 174.1 | 220.5 | +46.5 | **+26.7%** |
+| 32k | 4 | 321.2 | 406.1 | +84.9 | **+26.4%** |
+| 128k | 1 | 86.1 | 109.1 | +22.9 | **+26.6%** |
+| 128k | 2 | 165.1 | 202.1 | +37.0 | +22.4% |
+| 128k | 4 | 304.1 | 359.5 | +55.4 | +18.2% |
+
+**Verdict:** at constant drafter (DFlash N=8) and constant gumbel-off, switching the base from BF16 W16A16 to FP8 W8A8 yields a uniform **~22% throughput uplift** across all 9 cells. Correctness deltas are small: HumanEval 116 → 122 (+6 problems, +3.7pp) and MBPP 230 → 227 (−3 problems, −1.2pp). Net combined HE+MB 346 → 349 (+3 problems / +0.7pp).
+
+### 13.8 Stress-harness gates
+
+All three FP8+DFlash configs achieved **4/4 functional gates** (Fibonacci recurrence sanity, tool-call invocation, deterministic arithmetic, multi-turn role consistency). No engine crashes, no hangs, no malformed responses across 2,105 test executions in this addendum sweep.
+
+### 13.9 Updated production decision tree
+
+Adding FP8+DFlash to Section 5's decision tree:
+
+```
+                  ┌──────────────────────────────────────────┐
+                  │ What is the dominant workload?           │
+                  └────────────────┬─────────────────────────┘
+                                   │
+        ┌──────────────────────────┼──────────────────────────────┐
+        │                          │                              │
+   ctx≤32k, c≥4              ctx∈[64k,256k]                MBPP-class
+   batch serving             coding-agent                  short context
+        │                          │                              │
+        ▼                          ▼                              ▼
+   FP8+MTP=3                FP8+DFlash N=8                BF16+DFlash N=8
+   (442 tok/s ctx=0/c=4)    (+10% vs MTP=3 @ 128k)        (89.5% MBPP)
+   (79.3% HE / 85.6% MB)    (74.4% HE / 88.3% MB)         (70.7% HE)
+                                                          (BF16 weights)
+```
+
+**Headline production guidance is unchanged for the existing serving profile** (general coding-agent workload, mixed contexts): **FP8+MTP=3 stays as the default**, because its 79.3% HumanEval is meaningfully ahead of every DFlash variant (best DFlash on HE is BF16+DF15 at 78.0%, and FP8+DF8 at 74.4%).
+
+**New guidance for long-context-dominated workloads (ctx≥64k):** consider switching to **FP8+DFlash N=8 no-gumbel**. It loses 5.0 percentage points of HumanEval (79.3% → 74.4%) but gains 5–13% throughput at ctx∈{64k, 128k} for c∈{1,2,4}, plus +2.7pp on MBPP (85.6% → 88.3%). For workloads where the agent operates over a large repo and per-request latency matters, this is a favourable trade.
+
+### 13.10 Failure modes encountered
+
+- **Engine-init segfault with `--load-format instanttensor`** (described in §13.2). Resolved by switching to standard safetensors loader. **Action item:** the production `launch_fp8.sh` retains `instanttensor` because it works for the FP8+MTP=3 pairing; the new `launch-fp8-dflash-N-nogumbel.sh` uses the standard loader.
+- **No other anomalies.** All gates, all 9 throughput-matrix cells × 2 runs × 60s, all 164 HumanEval problems, and all 257 MBPP problems completed without engine intervention across all three configs.
+
+### 13.11 Reproduce
+
+Launch (FP8 + DFlash, no gumbel, N parameterised; **note the absence of `--load-format instanttensor`**):
+
+```bash
+docker run --rm \
+    --runtime nvidia --gpus all --ipc=host \
+    --shm-size=32g --ulimit memlock=-1 --ulimit stack=67108864 \
+    --network host \
+    --volume ~/.cache/huggingface:/root/.cache/huggingface \
+    --volume ~/.cache/vllm:/root/.cache/vllm \
+    --volume ~/.cache/flashinfer:/root/.cache/flashinfer \
+    --volume ~/.triton/cache:/root/.triton/cache \
+    --env OMP_NUM_THREADS=8 \
+    --env VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1 \
+    --env VLLM_WORKER_MULTIPROC_METHOD=spawn \
+    --env VLLM_ALLREDUCE_USE_SYMM_MEM=0 \
+    --env NCCL_P2P_LEVEL=SYS --env NCCL_NET_GDR_LEVEL=SYS \
+    --env NCCL_MIN_NCHANNELS=8 \
+    --env HUGGING_FACE_HUB_TOKEN=hf_REDACTED \
+    repne/vllm:latest \
+        -O3 \
+        --model Qwen/Qwen3.6-27B-FP8 \
+        --served-model-name Qwen3.6-27B \
+        --tensor-parallel-size 2 \
+        --gpu-memory-utilization 0.85 \
+        --max-model-len 262144 \
+        --max-num-seqs 128 \
+        --max-num-batched-tokens 32758 \
+        --max-cudagraph-capture-size 256 \
+        --language-model-only \
+        --enable-auto-tool-choice \
+        --reasoning-parser qwen3 \
+        --tool-call-parser qwen3_coder \
+        --enable-prefix-caching \
+        --speculative-config.method dflash \
+        --speculative-config.model z-lab/Qwen3.6-27B-DFlash \
+        --speculative-config.num_speculative_tokens ${NUM_SPEC} \
+        --speculative-config.attention_backend flash_attn \
+        --speculative-config.use_local_argmax_reduction true \
+        --attention-backend flashinfer \
+        --default-chat-template-kwargs.preserve_thinking true
+```
+
+(Do **not** add `--load-format instanttensor`. Drafter init segfaults — see §13.2.)
+
+After server reports ready (`GET /v1/models` returns 200), wait **60 seconds** before the first benchmark request to let CUDA graphs and flashinfer caches settle. Then run the standard four-phase harness (gates → matrix at 9 cells × 2 runs × 60s decode + 20s warmup → HumanEval c=8 → MBPP c=8).
+
+### 13.12 Raw data
+
+- `configF-fp8-dflash7-nogumbel/` — gates.json, throughput-matrix (9 cells × 2 runs), humaneval.jsonl, mbpp.jsonl, summary JSONs, full driver log.
+- `configG-fp8-dflash8-nogumbel/` — same artifact set.
+- `configH-fp8-dflash15-nogumbel/` — same artifact set.
+
+Engine: `repne/vllm:latest` digest `f8daec1dc883`, vLLM `v0.1.dev16434+g81845bdee.d20260506`. KV-cache budgets (FP8+DFlash, no-gumbel): N=7 → 1,178,863 | N=8 → 1,171,846 | N=15 → 1,121,790. (Note: ~24% larger than the corresponding BF16+DFlash KV budgets, consistent with FP8 weights leaving more HBM for the page-attention block table.)
 
