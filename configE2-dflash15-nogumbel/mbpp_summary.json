@@ -1,0 +1,19 @@
+{
+  "config_label": "dflash15-nogumbel",
+  "benchmark": "mbpp",
+  "total_problems": 257,
+  "completed": 257,
+  "sprint_wall_time_s": 617.6275587081909,
+  "failure_mode_breakdown": {
+    "ok": 227,
+    "test_fail": 9,
+    "empty_response": 21
+  },
+  "pass_rate": 0.8832684824902723,
+  "mean_elapsed_s": 18.637816273284795,
+  "median_elapsed_s": 12.187561750411987,
+  "p95_elapsed_s": 63.437520027160645,
+  "mean_completion_tokens": 2443.081712062257,
+  "mean_reasoning_chars": 7398.287937743191,
+  "effective_tps": 1016.5867619528442
+}

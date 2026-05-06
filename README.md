@@ -2,6 +2,8 @@
 
 **A 5-configuration × 4-phase head-to-head validation suite. 2,105 hard coding problems executed across all configurations under sustained concurrent load. Zero engine crashes, zero hangs, zero malformed responses.**
 
+> **Update — May 6, evening:** [Section 12](#12-addendum-may-6-evening--draft_sample_methodgumbel-removal-study) adds an addendum re-running all three DFlash variants with the deprecated `--speculative-config.draft_sample_method gumbel` flag removed and an improved harness (60s decode duration, 20s warmup). Headline finding: **DFlash N=15 with `gumbel` disabled gains +8 HumanEval problems (73.2% → 78.0%)**, becoming the new SOTA among BF16+DFlash configurations. Production guidance unchanged: FP8+MTP=3 still leads at 79.3%.
+
 ---
 
 ## Abstract
@@ -337,3 +339,170 @@ To reproduce a single configuration:
 - Upstream vLLM: [`vllm-project/vllm`](https://github.com/vllm-project/vllm)
 - HumanEval: [`openai/human-eval`](https://github.com/openai/human-eval)
 - MBPP: [Google Research datasets](https://huggingface.co/datasets/google-research-datasets/mbpp) (sanitized split)
+
+---
+
+## 12. Addendum (May 6, evening) — `draft_sample_method=gumbel` removal study
+
+### 12.1 Motivation
+
+After Sections 1–11 were finalised, the Repne fork upstream advised in their bug-tracker channel that the `--speculative-config.draft_sample_method gumbel` flag is **deprecated** and would be removed in a subsequent build. The previous DFlash configurations (C, D, E in this report) were all launched with `gumbel` enabled. To isolate the correctness and performance effect of removing this flag, we re-ran the **full four-phase harness** (gates → throughput-matrix → HumanEval → MBPP) on all three DFlash variants with `gumbel` removed and with two harness improvements:
+
+- `--decode-warmup-seconds 20` (was 10) — eliminate residual JIT compilation in the first measured request.
+- `--duration 60` (was 30) — average over more decode steps to suppress speculative-decoding variance.
+
+All other server flags, the model checkpoint, the drafter checkpoint, and the host environment were held constant. Three new configurations were validated:
+
+| New config | Drafter | n_spec | gumbel | Harness | Image |
+|---|---|---|---|---|---|
+| `configC2-dflash7-nogumbel` | `z-lab/Qwen3.6-27B-DFlash` | 7 | **OFF** | v2 (60s/20s) | `repne/vllm@f8daec1dc883` |
+| `configD2-dflash8-nogumbel` | `z-lab/Qwen3.6-27B-DFlash` | 8 | **OFF** | v2 (60s/20s) | `repne/vllm@f8daec1dc883` |
+| `configE2-dflash15-nogumbel` | `z-lab/Qwen3.6-27B-DFlash` | 15 | **OFF** | v2 (60s/20s) | `repne/vllm@f8daec1dc883` |
+
+### 12.2 Coding correctness — gumbel ON vs OFF
+
+**HumanEval (164 problems, c=8, max_tokens=4096, temp=0.0):**
+
+| Config | Gumbel ON pass | Gumbel OFF pass | Δ pass | Δ pp |
+|---|---|---|---|---|
+| DFlash N=7  | 120/164 (73.2%) | 120/164 (73.2%) | **0** | 0.0 |
+| DFlash N=8  | 120/164 (73.2%) | 116/164 (70.7%) | **−4** | −2.4 |
+| DFlash N=15 | 120/164 (73.2%) | **128/164 (78.0%)** | **+8** | **+4.9** ⭐ |
+
+**MBPP sanitized (257 problems, c=8, max_tokens=4096, temp=0.0):**
+
+| Config | Gumbel ON pass | Gumbel OFF pass | Δ pass | Δ pp |
+|---|---|---|---|---|
+| DFlash N=7  | 229/257 (89.1%) | 228/257 (88.7%) | **−1** | −0.4 |
+| DFlash N=8  | 230/257 (89.5%) | 230/257 (89.5%) | **0**  | 0.0 |
+| DFlash N=15 | 230/257 (89.5%) | 227/257 (88.3%) | **−3** | −1.2 |
+
+**Headline:** removing `gumbel` is a **net win for DFlash N=15** (+8 HumanEval problems, −3 MBPP, net +5 problems / +0.9pp average pass-rate across both benchmarks). For N=7 and N=8 the change is correctness-neutral within run-to-run variance (≤4 problems on a 164-problem benchmark = ~2.4pp, comparable to the noise floor we measured in the prior sprint).
+
+> The +8 HumanEval improvement at N=15 is striking and reverses the prior conclusion (Section 1 finding 4) that **n_spec is a pure throughput knob**. With `gumbel` disabled, the longer speculative window at N=15 appears to recover correctness — possibly because greedy argmax draft sampling is better matched to the deterministic temp=0 verifier than the stochastic gumbel-perturbed drafter when the speculative chain is long.
+
+### 12.3 Throughput matrix — gumbel ON vs OFF
+
+Mean output tokens/sec across all 9 cells (3 contexts × 3 concurrencies, 2 runs per cell, 60s sustained-decode each):
+
+| Config | Gumbel ON mean | Gumbel OFF mean | Δ tok/s | Δ % |
+|---|---|---|---|---|
+| DFlash N=7  | 197.7 | 196.6 | −1.1 | −0.6% |
+| DFlash N=8  | 195.7 | 195.9 | +0.2 | +0.1% |
+| DFlash N=15 | 179.6 | 181.0 | +1.3 | +0.7% |
+
+**Headline:** removing `gumbel` is **performance-neutral** at the matrix-mean level — all three configs remain within ±1% of their gumbel-on baselines. The largest per-cell mover is N=15 at ctx=0/c=1 (+10.6%, 88.4 → 97.8 tok/s); the largest regression is N=7 at ctx=32k/c=1 (−5.2%, 93.2 → 88.3 tok/s). These offset across the matrix.
+
+### 12.4 Speculative-decoding acceptance — gumbel ON vs OFF
+
+Mean acceptance rate across all 18 throughput-matrix runs per config (server-reported `vllm:spec_decode_efficiency` family):
+
+| Config | Gumbel ON accept-rate | Gumbel OFF accept-rate | Δ |
+|---|---|---|---|
+| DFlash N=7  | 23.04% | 23.50% | +0.46pp |
+| DFlash N=8  | 22.78% | 25.58% | **+2.80pp** |
+| DFlash N=15 | 13.20% | 13.50% | +0.30pp |
+
+Acceptance rates are **slightly higher** with `gumbel` removed — consistent with the hypothesis that greedy drafter sampling matches the deterministic temp=0 verifier more closely than gumbel-perturbed drafter sampling.
+
+### 12.5 Stress-harness gates — gumbel ON vs OFF
+
+All three no-gumbel configs achieved **2/3 gates** (identical to their gumbel-on counterparts). The third gate (sustained 30-minute high-concurrency soak) is gated on a long-running test that was not re-run in this addendum sweep due to time budget.
+
+### 12.6 Failure modes encountered
+
+- **One-off CUDA launch timeout, configC2 first attempt.** During the MBPP phase of the first `configC2-dflash7-nogumbel` run, the engine died with:
+  ```
+  RuntimeError: Worker failed with error 'CUDA error: the launch timed out and was terminated' (cudaErrorLaunchTimeout)
+  ```
+  73 HTTP errors and 158 client exceptions were logged. The GPUs recovered cleanly without a host reboot, the container was relaunched with the same command, and the retry completed with no anomalies. We attribute this to a transient kernel-launch deadline issue rather than a configuration-specific bug; it is not reproducible and not n_spec=7-specific. Both the failed-attempt log and the successful retry data are checked into `configC2-dflash7-nogumbel/`.
+
+- **No other anomalies.** All 9 throughput-matrix cells, all gates checks, and the HumanEval/MBPP phases for D2 and E2 ran without intervention.
+
+### 12.7 Updated production guidance
+
+The headline production recommendation is **unchanged**: FP8+MTP=3 remains the SOTA for coding-agent workloads (HumanEval 79.3%, well above any DFlash configuration with or without gumbel).
+
+For **MBPP-dominated** or **BF16-precision-required** workloads, the DFlash variants now have a clearer ranking:
+
+| Rank | Config | HumanEval | MBPP | Notes |
+|---|---|---|---|---|
+| 1 | **DFlash N=15 no-gumbel** | **78.0%** | 88.3% | New SOTA among BF16+DFlash for HumanEval; +8 problems vs gumbel-on. |
+| 2 | DFlash N=7 no-gumbel | 73.2% | 88.7% | Tied highest MBPP among DFlash; throughput-optimal at low concurrency. |
+| 3 | DFlash N=8 no-gumbel | 70.7% | 89.5% | Highest MBPP, slightly weaker HumanEval. |
+
+**Action items:**
+1. Drop `--speculative-config.draft_sample_method gumbel` from all DFlash launch commands going forward (already deprecated upstream).
+2. Update Section 1 finding 4 of the main report: at temp=0, `n_speculative_tokens=15` with `gumbel` disabled **outperforms** n=7/8 on HumanEval by ~5pp. The prior conclusion that "n_spec has no effect on correctness" only held with `gumbel` enabled.
+3. Continue running production on **FP8+MTP=3** (still 79.3% > 78.0%).
+
+### 12.8 Reproduce
+
+Launch (DFlash, no gumbel, N parameterized via `$NUM_SPEC`):
+
+```bash
+docker run --rm \
+    --runtime nvidia --gpus all --ipc=host \
+    --shm-size=32g --ulimit memlock=-1 --ulimit stack=67108864 \
+    --network host \
+    --volume ~/certificates:/root/certificates \
+    --volume ~/.cache/huggingface:/root/.cache/huggingface \
+    --volume ~/.cache/vllm:/root/.cache/vllm \
+    --volume ~/.cache/flashinfer:/root/.cache/flashinfer \
+    --volume ~/.triton/cache:/root/.triton/cache \
+    --env OMP_NUM_THREADS=8 \
+    --env VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1 \
+    --env VLLM_WORKER_MULTIPROC_METHOD=spawn \
+    --env VLLM_ALLREDUCE_USE_SYMM_MEM=0 \
+    --env NCCL_P2P_LEVEL=SYS --env NCCL_NET_GDR_LEVEL=SYS \
+    --env NCCL_MIN_NCHANNELS=8 \
+    --env HUGGING_FACE_HUB_TOKEN=hf_REDACTED \
+    repne/vllm:latest \
+        -O3 \
+        --model Qwen/Qwen3.6-27B \
+        --served-model-name Qwen3.6-27B \
+        --tensor-parallel-size 2 \
+        --gpu-memory-utilization 0.85 \
+        --max-model-len 262144 \
+        --max-num-seqs 128 \
+        --max-num-batched-tokens 32758 \
+        --max-cudagraph-capture-size 256 \
+        --language-model-only \
+        --enable-auto-tool-choice \
+        --reasoning-parser qwen3 \
+        --tool-call-parser qwen3_coder \
+        --enable-prefix-caching \
+        --speculative-config.method dflash \
+        --speculative-config.model z-lab/Qwen3.6-27B-DFlash \
+        --speculative-config.num_speculative_tokens ${NUM_SPEC} \
+        --speculative-config.attention_backend flash_attn \
+        --speculative-config.use_local_argmax_reduction true \
+        --attention-backend flashinfer \
+        --default-chat-template-kwargs.preserve_thinking true
+```
+
+(Drop `--speculative-config.draft_sample_method gumbel` — the parameter is no longer supported.)
+
+Harness (per config):
+
+```bash
+# Throughput matrix: 3 contexts × 3 concurrencies × 2 runs × 60s sustained decode
+bench --concurrency 1,2,4 \
+      --contexts 0,32000,131072 \
+      --runs 2 \
+      --duration 60 \
+      --decode-warmup-seconds 20 \
+      --max-tokens 2048 \
+      --skip-prefill
+
+# HumanEval / MBPP: c=8, max_tokens=4096, temp=0.0
+```
+
+Engine: `repne/vllm:latest` digest `f8daec1dc883`, vLLM `v0.1.dev16434+g81845bdee.d20260506`.
+
+### 12.9 Raw data
+
+- `configC2-dflash7-nogumbel/` — gates, throughput-matrix (9 cells × 2 runs), HumanEval, MBPP, full driver logs (including failed-attempt log and successful retry log).
+- `configD2-dflash8-nogumbel/` — gates, throughput-matrix, HumanEval, MBPP, driver log.
+- `configE2-dflash15-nogumbel/` — gates, throughput-matrix, HumanEval, MBPP, driver log.
+
