@@ -1,0 +1,54 @@
+
+═══════════════════════════════════════════════
+  CONFIG: dflash15
+  Started: 16:29:05
+  KV budget: 907886
+  Output: /home/josh/qwen-vllm-test/bench/may6-stress-sprint/configE-dflash15
+═══════════════════════════════════════════════
+
+[16:29:05] PHASE 1: Functional gates (Fibonacci 5x, tool, reasoning, multi-turn)
+Gate 1 (Fibonacci 5x): 5/5 -> PASS
+Gate 2 (Tool call): PASS
+Gate 3 (47x83=3901): PASS
+Gate 4 (multi-turn): PASS -- T3: 'Tokyo is warmer.'
+
+Gates: 4/4
+
+[16:31:19] PHASE 2: Throughput matrix (9 cells, N=2)
+  c1_ctx0: 88.4±2.52
+  c1_ctx32000: 90.3±6.22
+  c1_ctx131072: 83.7±7.74
+  c2_ctx0: 173.2±2.89
+  c2_ctx32000: 166.3±5.09
+  c2_ctx131072: 151.9±0.38
+  c4_ctx0: 313.4±9.33
+  c4_ctx32000: 297.1±8.72
+  c4_ctx131072: 252.4±9.00
+
+[16:51:00] PHASE 3: HumanEval stress (164 problems, c=8)
+  [163/164] ✅ HumanEval/132 fr=stop t=65.1s
+  [164/164] ✅ HumanEval/134 fr=stop t=30.6s
+
+[16:58:32] DONE in 452.5s (7.5 min)
+  Pass rate: 120/164 = 73.2%
+  Failure modes: {'ok': 120, 'test_fail': 42, 'empty_response': 2}
+  Mean elapsed: 21.0s, p95: 42.4s
+  Effective tok/s: 1006.3
+  Saved: /home/josh/qwen-vllm-test/bench/may6-stress-sprint/configE-dflash15/humaneval.jsonl
+  Summary: /home/josh/qwen-vllm-test/bench/may6-stress-sprint/configE-dflash15/humaneval_summary.json
+
+[16:58:32] PHASE 4: MBPP stress (257 problems, c=8)
+  [256/257] ✅ MBPP/468 fr=stop t=25.8s
+  [257/257] 🚨[empty_response] MBPP/118 fr=length t=52.1s
+
+[17:08:43] DONE in 610.7s (10.2 min)
+  Pass rate: 230/257 = 89.5%
+  Failure modes: {'ok': 230, 'test_fail': 10, 'empty_response': 17}
+  Mean elapsed: 18.2s, p95: 60.3s
+  Effective tok/s: 995.4
+  Saved: /home/josh/qwen-vllm-test/bench/may6-stress-sprint/configE-dflash15/mbpp.jsonl
+  Summary: /home/josh/qwen-vllm-test/bench/may6-stress-sprint/configE-dflash15/mbpp_summary.json
+
+═══════════════════════════════════════════════
+  CONFIG dflash15 DONE in 2378s (39 min)
+═══════════════════════════════════════════════

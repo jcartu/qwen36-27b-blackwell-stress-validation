@@ -1,0 +1,19 @@
+{
+  "config_label": "dflash8",
+  "benchmark": "humaneval",
+  "total_problems": 164,
+  "completed": 164,
+  "sprint_wall_time_s": 400.25550365448,
+  "failure_mode_breakdown": {
+    "ok": 120,
+    "test_fail": 42,
+    "empty_response": 2
+  },
+  "pass_rate": 0.7317073170731707,
+  "mean_elapsed_s": 18.48285686969757,
+  "median_elapsed_s": 16.50703752040863,
+  "p95_elapsed_s": 36.36455583572388,
+  "mean_completion_tokens": 2656.981707317073,
+  "mean_reasoning_chars": 8550.957317073171,
+  "effective_tps": 1088.6671039410774
+}

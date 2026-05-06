@@ -1,0 +1,19 @@
+{
+  "config_label": "dflash8",
+  "benchmark": "mbpp",
+  "total_problems": 257,
+  "completed": 257,
+  "sprint_wall_time_s": 560.8803222179413,
+  "failure_mode_breakdown": {
+    "ok": 230,
+    "test_fail": 9,
+    "empty_response": 18
+  },
+  "pass_rate": 0.8949416342412452,
+  "mean_elapsed_s": 16.793077518967802,
+  "median_elapsed_s": 10.765305519104004,
+  "p95_elapsed_s": 56.24284744262695,
+  "mean_completion_tokens": 2365.704280155642,
+  "mean_reasoning_chars": 7108.571984435797,
+  "effective_tps": 1083.9852565976719
+}

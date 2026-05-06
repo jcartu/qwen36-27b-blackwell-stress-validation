@@ -1,0 +1,19 @@
+{
+  "config_label": "fp8mtp5",
+  "benchmark": "mbpp",
+  "total_problems": 257,
+  "completed": 257,
+  "sprint_wall_time_s": 555.079619884491,
+  "failure_mode_breakdown": {
+    "ok": 221,
+    "test_fail": 7,
+    "empty_response": 29
+  },
+  "pass_rate": 0.8599221789883269,
+  "mean_elapsed_s": 16.488744854463214,
+  "median_elapsed_s": 10.878926753997803,
+  "p95_elapsed_s": 51.808902978897095,
+  "mean_completion_tokens": 2666.011673151751,
+  "mean_reasoning_chars": 8023.171206225681,
+  "effective_tps": 1234.3544519659704
+}

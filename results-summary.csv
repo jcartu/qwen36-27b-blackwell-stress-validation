@@ -1,0 +1,6 @@
+config,gates,humaneval_pass,humaneval_total,humaneval_pct,mbpp_pass,mbpp_total,mbpp_pct,humaneval_empty,humaneval_test_fail,mbpp_empty,mbpp_test_fail,humaneval_eff_tps,mbpp_eff_tps,humaneval_p95_s,mbpp_p95_s
+FP8+MTP=3,4/4,130,164,79.3%,220,257,85.6%,7,27,29,8,1098.2,1055.8,45.6,59.0
+FP8+MTP=5,4/4,124,164,75.6%,221,257,86.0%,4,36,29,7,1263.7,1234.4,35.5,51.8
+BF16+DFlash=7,4/4,120,164,73.2%,229,257,89.1%,4,40,19,9,1077.6,1015.3,40.2,59.1
+BF16+DFlash=8,4/4,120,164,73.2%,230,257,89.5%,2,42,18,9,1088.7,1084.0,36.4,56.2
+BF16+DFlash=15,4/4,120,164,73.2%,230,257,89.5%,2,42,17,10,1006.3,995.4,42.4,60.3
