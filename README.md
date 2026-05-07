@@ -1,3 +1,10 @@
+[![← qwen-bench hub](https://img.shields.io/badge/%E2%86%90-qwen--bench_hub-blueviolet?style=for-the-badge)](https://github.com/jcartu/qwen-bench)
+
+> Part of the [`qwen-bench`](https://github.com/jcartu/qwen-bench) ongoing benchmark series.
+> See the hub for the current SOTA leaderboard and a chronological index of all studies.
+
+---
+
 # Stress-Validation Study of Qwen3.6-27B Inference Configurations on Dual NVIDIA RTX PRO 6000 Blackwell
 
 **A 5-configuration × 4-phase head-to-head validation suite. 2,105 hard coding problems executed across all configurations under sustained concurrent load. Zero engine crashes, zero hangs, zero malformed responses.**
